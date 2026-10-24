@@ -1,0 +1,245 @@
+#!/opt/homebrew/bin/bash
+
+# define terminal sequences
+RED="\e[31m"
+YELLOW="\e[0;33m"
+ITALIC="\e[3m"
+OFF="\e[0m"
+
+# helper routine to output errors
+function log_error() {
+    echo -e "$RED$ITALIC$@$OFF" >&2
+}
+
+if [ "$#" -ne 2 ]; then
+    echo -e "$0: ${RED}Please provide both a file to process and an account indicator$OFF" >&2
+    echo -e "\te.g.:$YELLOW$ITALIC$0 Betterment Safety Net 20190911-2.pdf safety$OFF" >&2
+    exit 1
+fi
+
+###
+### Variables to Modify
+###
+
+P2T="/opt/homebrew/bin/pdftotext"                       # pdftotext binary
+PERL="/usr/bin/perl"                                    # perl binary
+SED="/usr/bin/sed"                                      # sed binary
+GREP="/usr/bin/grep"                                    # grep binary
+CUT="/usr/bin/cut"                                      # cut binary
+AWK="/usr/bin/awk"                                      # awk binary
+DEBUG=${BSTATE_DEBUG:-0}                                # turns on debugging based on environment variable BSTATE_DEBUG
+
+transDesc="Betterment "                                 # core of transaction description
+transBase="assets:investing:betterment:"                # hledger account path
+transFees="expenses:betterment:fees"                    # hledger fees expense
+
+# define your betterment to hledger account mapping  here
+# you'll want to create an entry for each account, and then the modifications for the description
+# and the base of the account path
+
+case "$2" in
+    "wealth")
+        transDesc+="Wealth Goal"
+        transBase+="wealth:"
+        ;;
+    "safety")
+        transDesc+="Safety Net"
+        transBase+="safety:"
+        ;;
+esac
+
+###
+### End of Variables
+###
+# filename to process, uses "" throughout to preserve any whitespace in filename
+FILE="$1"
+if [ ! -f "$FILE" ]; then
+   log_error "$FILE does not exist."
+   exit 1
+fi
+
+###
+### Begin function definitions
+###
+
+function log() {
+    debugLevel=${2:-0}
+    if [ $debugLevel -eq 0 ]; then
+        echo -e "$YELLOW$1$OFF" >&2
+    fi
+    if [[ $debugLevel -gt 0 ]] && [[ $DEBUG -eq 1 ]]; then
+        echo -e "$RED$1$OFF" >&2
+    fi
+}
+
+function log_func() {
+    log "In $1()" 1
+    log "\$1: $2" 1
+    log "\$2: $3" 1   
+}
+
+# format month and date fields
+function format_dates() {
+    month=$(date -j -f "%b" $month +"%m")
+    printf -v day "%02d" "$day"
+}
+
+# routine to output dividends
+function dividends {
+    
+    log_func "${FUNCNAME[0]}" "$1" "$2"
+    
+    lineNum=1
+    totalCost=0
+    while IFS= read -r line; do
+        # get first four variables for date and security name
+        read -r month day year security < <(echo "$line" | $AWK '{print $1, $2, $3, $4}')
+        # pull the amount from the line
+        read -r amt < <(echo "$line" | $AWK '{ pos = match($0, /\$[0-9]/); print (pos ? substr($0,pos) : "") }')
+        amt="${amt//[\$,]/}"
+        totalCost=$(bc <<< "$totalCost + $amt")
+        # On first line build hledger transaction header
+        if [[ $lineNum -eq 1 ]] ; then
+            format_dates
+            echo "$year-$month-$day $transDesc Dividends"
+        fi
+        negAmt="${amt/\$/\$-}"
+        dividends+=$(echo "\trevenues:dividend:$security\t\t\$-$amt\n")
+        ((lineNum++))
+    done <<< "$1"
+    printf -v outputNum "%.2f" "$totalCost"
+    echo -e "\t${transBase}cash\t\t\$${outputNum}"
+    echo -e "$dividends"
+}
+
+# process standard txs
+# assumes two parameters: $1=Description Modifier, $2=Transaction block
+# assumes that transaction block is multi-line string provided in format:
+#   Month Day Year Security Price Shares Cost TotalShares TotalValue
+# M/D/Y is required for first line, optional after that.
+function tx {
+
+    log_func "${FUNCNAME[0]}" "$1" "$2"
+
+    description="$transDesc $1"
+
+    lineNum=1
+    totalCost=0
+    while IFS= read -r line; do
+        # initial read with leading date
+        read -r month day year security price origShares cost balShares balValue < <(echo "$line" | $AWK '{ print $1, $2, $3, $4, $5, $6, $7, $8, $9 }')
+        # if date is not valid, assume is dateless line
+        if [[ ! "$year" =~ ^[0-9]{4}$ ]]; then
+            read -r security price origShares cost balShares balValue < \
+                <(echo "$line" | $AWK '{ print $1, $2, $3, $4, $5, $6 }')
+        fi
+        if [[ $lineNum -eq 1 ]]; then
+            format_dates
+            echo -e "$year-$month-$day $description"
+        fi
+        price="${price//[\$,]/}"
+        cost="${cost//[\$,]/}"
+        totalCost=$(bc <<< "$totalCost + $cost")
+        shares=$(printf "%.6f" "$(echo "scale=8; $cost / $price" | bc)")
+        txs+=$(echo "\t${transBase}$security\t\t$shares $security @@ \$$cost ; $origShares priced at \$$price\n")
+        ((lineNum++))
+    done <<< "$2"
+
+    printf -v outputNum "%.2f" "$totalCost"
+    if [[ "$1" == "Advisory Fees" ]]; then
+        echo -e "\t$transFees\t\t\$${outputNum//-\n}"
+    fi
+
+    txs=$(echo -e "$txs" | $GREP '\S')                                       # delete blank lines
+    echo -e "$txs"
+    
+    # Deposits are followed by a balancing equity statement
+    # Dividends are followed by a credit to cash
+    case "$1" in
+        "Deposit")
+            echo -e "\tequity:start\t\t\$-${outputNum}\n"
+            ;;
+        "Dividend Reinvestment")
+            echo -e "\t${transBase}cash\t\t\$-${outputNum}\n"
+            ;;
+        "Tax Loss Harvesting"|"Portfolio Update"|"Advisory Fees")
+            # Need trailing line if ending on transactions
+            echo
+            ;;
+    esac
+}
+
+###
+### Main code logic
+###
+
+# Dividends, sample Betterment Safety Net 20190311.pdf
+divPayments=$("$P2T" -layout "$FILE" - | $GREP -e "Dividend Payment Detail" -A 20 | $SED '/Total[[:space:]]*\$/q' | $SED '1,3d' | $SED '$d')
+divReinvest=$("$P2T" -layout "$FILE" - | $GREP -e "Dividend Reinvestment Detail" -A 20 | $SED '1,4d' | $SED '/^$/q' | $SED '$d' \
+        | $SED -E 's/(Stocks|Bonds) \///g' | $SED -e 's/Dividend Reinvestment//g' | $SED -e 's/Dividend//g')
+
+# deposit or advisory fees
+# deposit (new style), sample Betterment Safety Net 20190228.pdf
+# deposit (old style), sample Betterment Wealth 20140402.pdf
+transaction=$("$P2T" -layout "$FILE" - | $GREP -e "Transaction Detail" -A 20 | $SED '1,4d' | $SED '/^$/q' | $SED '$d' \
+        | $SED -E 's/(Stocks|Bonds) \///g')
+
+# reallocation, sample Betterment Safety Net 20190911-2.pdf
+# tax loss harvesting, sample Betterment Wealth 20150824.pdf
+reallocation=$("$P2T" -layout "$FILE" - | $GREP -e "^[[:space:]]*Allocation Change" -A 20 | $SED '1d' | $SED '2d' | $SED '/^$/q')
+# portfolio update, sample Betterment Wealth 20140821.pdf
+portfolio=$("$P2T" -layout "$FILE" - | $GREP -e "^[[:space:]]*Portfolio Update" -A 20 | $SED '1d' | $SED '/^$/q' | $CUT -c 1-29,76- \
+        | $GREP -v '^[[:space:]]*$' | $SED -E 's/(Stocks|Bonds) \///g')
+
+if [ ${#divPayments} -gt 0 ] && [ ${#divReinvest} -gt 0 ]; then
+    log "$FILE contains dividends."
+    dividends "$divPayments"
+    tx "Dividend Reinvestment" "$divReinvest"
+    exit 0
+fi
+
+if [[ "$transaction" == *"Advisory Fee"* ]]; then
+    log "$FILE contains an advisory fee."
+    transaction=$(echo "$transaction" | $SED -e 's/Advisory Fee//')
+    tx "Advisory Fees" "$transaction"
+    exit 0
+fi
+
+if [[ "$transaction" == *"Deposit from"* ]]; then
+    log "$FILE contains a deposit."
+    # Typically thesse have text like 'Deposit from ******7043' describing the transaction.
+    transaction=$(echo "$transaction" | $PERL -pe 's/Deposit from.*?\d{4}//')
+    tx "Deposit" "$transaction"
+    exit 0
+fi
+
+if [[ "$transaction" == *"Automatic Deposit"* ]]; then
+    log "$FILE contains older-style deposit."
+    # remove any transaction deposit.
+    transaction=$(echo "$transaction" | $SED -e 's/Automatic Deposit//g')
+    tx "Deposit" "$transaction"
+    exit 0
+fi
+
+if [[ "$transaction" == *"Tax Loss Harvesting"* ]]; then
+    log "$FILE contains tax loss harvesting."
+    transaction=$(echo "$transaction" | SED -e 's/Tax Loss Harvesting//g')
+    tx "Tax Loss Harvesting" "$transaction"
+    exit 0
+fi
+
+if [ ${#reallocation} -gt 0 ]; then
+    log "$FILE contains a reallocation."
+    tx "Re-allocation" "$reallocation"
+    exit 0
+fi
+
+if [ ${#portfolio} -gt 0 ]; then
+    log "$FILE contains a portfolio update."
+    tx "Portfolio Update" "$portfolio"
+    exit 0
+fi
+
+log_error "Could not detect any valid transactons in $FILE."
+exit 1
+

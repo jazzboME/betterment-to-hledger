@@ -1,0 +1,46 @@
+# betterment-to-hledger
+
+This repository contains a bash script to convert betterment activity report PDFs into hledger entries. 
+
+If you try this, obviously the conversion may not be perfect and you may want to hand touch up any issues, such as the accounts from where your deposits originate. 
+
+**Note:** This script was tested on Betterment statements from approximately 2014 to late 2022, so it may not support activity reports dated after that.
+
+## Pre-Requisites
+
+This was developed on Mac OS X and uses the built in (BSD derived) commands for awk, grep and sed.
+
+Additionally it relies on perl being installed and `pdftotext` from Poppler. 
+
+(I used homebrew to install both bash and poppler.)
+
+## Additional Pre-Configuration
+
+You'll likely want to change the values for the following variables:
+`transBase`: the root of your Betterment accounts in hledger
+`transFees` : the account where fees should be changed
+
+Then below that you will specify any additional subaccounts to differentiate your betterment accounts that will be specified at run-time.
+
+By default deposits will originate from `equity:start`
+
+## Installation and Running
+
+You'll want to copy your (configured) copy of `bstate` into your local path.
+
+For each statement you'll want to pass both the path to the PDF containing the activity report and the betterment account short hand you want to post the transactions to.
+
+The script will put informational, debugging messages and errors in STDERR, while the actual hledger transactions will go to STDOUT for redirection.
+
+Typically the script will be run this way:
+```
+for f in *.pdf; do
+    bstate "$f" wealth >> betterment-wealth.journal
+done
+```
+
+This would process all of the pdf files in the current directory, and applying the configured rules for transactions for the user's "wealth" account.
+
+Populating the environment variable `BSTATE_DEBUG` will add debugging output to STDERR.
+
+
