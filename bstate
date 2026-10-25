@@ -38,6 +38,8 @@ transWithdrawal="assets:bank"                           # hledger account for wi
 # you'll want to create an entry for each account, and then the modifications for the description
 # and the base of the account path
 
+transBaseOrig="$transBase"
+
 case "$2" in
     "wealth")
         transDesc+="Wealth Goal"
@@ -120,12 +122,14 @@ function dividends {
 # M/D/Y is required for first line, optional after that.
 function tx {
 
-    log_func "${FUNCNAME[0]}" "$1" "$2"
+    log_func "${FUNCNAME[0]}" "$1" "$2" "$3"
 
     description="$transDesc $1"
 
     lineNum=1
     totalCost=0
+    local txs=""
+    local txo=""
     while IFS= read -r line; do
         # initial read with leading date
         read -r month day year security price origShares cost balShares balValue < <(echo "$line" | $AWK '{ print $1, $2, $3, $4, $5, $6, $7, $8, $9 }')
@@ -142,6 +146,8 @@ function tx {
         cost="${cost//[\$,]/}"
         totalCost=$(bc <<< "$totalCost + $cost")
         shares=$(printf "%.6f" "$(echo "scale=8; $cost / $price" | bc)")
+        iShares="${shares//-/}"
+        txo+=$(echo "\t${transBaseOrig}$3:$security\t\t$iShares $security @@ \$$cost ; $origShares priced a \$$price\n")
         txs+=$(echo "\t${transBase}$security\t\t$shares $security @@ \$$cost ; $origShares priced at \$$price\n")
         ((lineNum++))
     done <<< "$2"
@@ -153,6 +159,14 @@ function tx {
             ;;
         "Withdrawal")
             echo -e "\t$transWithdrawal\t\t\$${outputNum//-\n}"
+            ;;
+        "Transfer Rebalance")
+            echo -e "\t$transBaseOrig$3:cash\t\t\$${outputNum//-\n}"
+            ;;
+        "Position Transfer")
+            txo=$(echo -e $txo | $SED '$d')
+            echo -e "$txo"
+            ;;
     esac
 
     txs=$(echo -e "$txs" | $GREP '\S')                                       # delete blank lines
@@ -186,7 +200,7 @@ divReinvest=$("$P2T" -layout "$FILE" - | $GREP -e "Dividend Reinvestment Detail"
 # deposit or advisory fees
 # deposit (new style), sample Betterment Safety Net 20190228.pdf
 # deposit (old style), sample Betterment Wealth 20140402.pdf
-transaction=$("$P2T" -layout "$FILE" - | $GREP -e "Transaction Detail" -A 20 | $SED '1,4d' | $SED '/^$/q' | $SED '$d' \
+transaction=$("$P2T" -layout "$FILE" - | $GREP -e "Transaction Detail" -A 50 | $SED '1,4d' | $SED '/^$/q' | $SED '$d' \
         | $SED -E 's/(Stocks|Bonds) \///g')
 
 # reallocation, sample Betterment Safety Net 20190911-2.pdf
@@ -223,6 +237,26 @@ if [[ "$transaction" == *"Withdrawal to"* ]]; then
    # These have text lines likes 'Withdrawal to ******1234' describing the transaction
    transaction=$(echo "$transaction" | $PERL -pe 's/Withdrawal to.*?\d{4}//')
    tx "Withdrawal" "$transaction"
+   exit 0
+fi
+
+if [[ "$transaction" == *"Transfer to"* ]]; then
+   log "$FILE contains a transfer."
+   # need to split into two parts, derive the accounts
+   # part 1 is a std tx + cash to derived acct
+   # part 2 reduces security from source act then adds to derived acct
+   derivedAcct=$(echo "$transaction" | $SED -E -n 's/.*Transfer to (.*) - Rebalance.*/\1/p')
+   transferPos=$(echo "$transaction" | $AWK '/Position Transfer/ {print NR}')
+   part2=$(echo "$transaction" | $SED -n "$transferPos,\$p")
+   transferPos=$((transferPos -1))
+   part1=$(echo "$transaction" | $SED -n "1,${transferPos}p")
+   part1=$(echo "$part1" | $PERL -pe 's/Transfer.*Rebalance//')
+   tx "Transfer Rebalance" "$part1" "$derivedAcct"
+   echo
+   derivedAcct=$(echo "$part2" | $SED -E -n 's/.*Transfer to (.*) - Position Transfer.*/\1/p')
+   part2=$(echo "$part2" | $PERL -pe 's/Transfer.*Position Transfer//')
+   tx "Position Transfer" "$part2" "$derivedAcct"
+   echo
    exit 0
 fi
 
