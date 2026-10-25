@@ -169,6 +169,9 @@ function tx {
             txo=$(echo -e $txo | $SED '$d')
             echo -e "$txo"
             ;;
+        "Transfer to Cash Reserve")
+            echo -e "\t${transBase}cash\t\t\$${outputNum//-/}"
+            ;;
     esac
 
     txs=$(echo -e "$txs" | $GREP '\S')                                       # delete blank lines
@@ -276,6 +279,13 @@ if [[ "$transaction" == *"Tax Loss Harvesting"* ]]; then
     transaction=$(echo "$transaction" | SED -e 's/Tax Loss Harvesting//g')
     tx "Tax Loss Harvesting" "$transaction"
     exit 0
+fi
+
+if [[ "$transaction" == *"Transfer all to Cash Reserve"* ]]; then
+    log "$FILE contains transfer all to cash reserve."
+    transaction=$(echo "$transaction" | SED -e 's/Transfer all to Cash Reserve//g')
+    tx "Transfer to Cash Reserve" "$transaction"
+    exit 0    
 fi
 
 if [ ${#portfolio} -gt 0 ]; then
