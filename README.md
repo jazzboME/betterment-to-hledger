@@ -8,7 +8,7 @@ The script takes an opionated view of things and posts commodity transactions at
 
 So expect a statement that reads:
 ```
-FUND	   Price.    Shares    Value
+FUND	   Price     Shares    Value
 STOCK      $51.90    -0.111    -$5.78
 ```
 to output as
@@ -33,7 +33,7 @@ You'll likely want to change the values for the following variables:
 
 Then below that you will specify any additional subaccounts to differentiate your betterment accounts that will be specified at run-time.
 
-By default deposits will originate from `equity:start`
+By default deposits will originate from `equity:start`, withdrawals will go to `assets:bank` and fees will be charged to `expenses:betterment:fees`
 
 ## Installation and Running
 
