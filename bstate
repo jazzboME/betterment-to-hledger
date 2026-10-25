@@ -32,6 +32,7 @@ DEBUG=${BSTATE_DEBUG:-0}                                # turns on debugging bas
 transDesc="Betterment "                                 # core of transaction description
 transBase="assets:investing:betterment:"                # hledger account path
 transFees="expenses:betterment:fees"                    # hledger fees expense
+transWithdrawal="assets:bank"                           # hledger account for withdrawals
 
 # define your betterment to hledger account mapping  here
 # you'll want to create an entry for each account, and then the modifications for the description
@@ -146,9 +147,13 @@ function tx {
     done <<< "$2"
 
     printf -v outputNum "%.2f" "$totalCost"
-    if [[ "$1" == "Advisory Fees" ]]; then
-        echo -e "\t$transFees\t\t\$${outputNum//-\n}"
-    fi
+    case "$1" in
+        "Advisory Fees")
+            echo -e "\t$transFees\t\t\$${outputNum//-\n}"
+            ;;
+        "Withdrawal")
+            echo -e "\t$transWithdrawal\t\t\$${outputNum//-\n}"
+    esac
 
     txs=$(echo -e "$txs" | $GREP '\S')                                       # delete blank lines
     echo -e "$txs"
@@ -207,10 +212,18 @@ fi
 
 if [[ "$transaction" == *"Deposit from"* ]]; then
     log "$FILE contains a deposit."
-    # Typically thesse have text like 'Deposit from ******7043' describing the transaction.
+    # Typically these have text like 'Deposit from ******1234' describing the transaction.
     transaction=$(echo "$transaction" | $PERL -pe 's/Deposit from.*?\d{4}//')
     tx "Deposit" "$transaction"
     exit 0
+fi
+
+if [[ "$transaction" == *"Withdrawal to"* ]]; then
+   log "$FILE contains a withdrawal."
+   # These have text lines likes 'Withdrawal to ******1234' describing the transaction
+   transaction=$(echo "$transaction" | $PERL -pe 's/Withdrawal to.*?\d{4}//')
+   tx "Withdrawal" "$transaction"
+   exit 0
 fi
 
 if [[ "$transaction" == *"Automatic Deposit"* ]]; then
