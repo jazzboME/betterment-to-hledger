@@ -33,7 +33,7 @@ transDesc="Betterment "                                 # core of transaction de
 transBase="assets:investing:betterment:"                # hledger account path
 transFees="expenses:betterment:fees"                    # hledger fees expense
 transWithdrawal="assets:bank"                           # hledger account for withdrawals
-
+transStart="equity:start"                               # hledger account to soure deposits
 # define your betterment to hledger account mapping  here
 # you'll want to create an entry for each account, and then the modifications for the description
 # and the base of the account path
@@ -178,7 +178,7 @@ function tx {
     # Dividends are followed by a credit to cash
     case "$1" in
         "Deposit")
-            echo -e "\tequity:start\t\t\$-${outputNum}\n"
+            echo -e "\t${transStart}\t\t\$-${outputNum}\n"
             ;;
         "Dividend Reinvestment")
             echo -e "\t${transBase}cash\t\t\$-${outputNum}\n"
