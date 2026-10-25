@@ -39,7 +39,7 @@ By default deposits will originate from `equity:start`, withdrawals will go to `
 
 You'll want to copy your (configured) copy of `bstate` into your local path.
 
-For each statement you'll want to pass both the path to the PDF containing the activity report and the betterment account short hand you want to post the transactions to.
+For each betterment statement you'll want to pass both the path to the PDF containing the activity report and the betterment account short hand you want to post the transactions to.
 
 The script will put informational, debugging messages and errors in STDERR, while the actual hledger transactions will go to STDOUT for redirection.
 
@@ -50,7 +50,7 @@ for f in *.pdf; do
 done
 ```
 
-This would process all of the pdf files in the current directory, and applying the configured rules for transactions for the user's "wealth" account.
+This would process all of the pdf files in the current directory, and applying the configured rules for transactions for the user's "wealth" account. You will see it process each file (and indicate any errors) while pushing the output into a `.journal` file.
 
 Populating the environment variable `BSTATE_DEBUG` will add debugging output to STDERR.
 
