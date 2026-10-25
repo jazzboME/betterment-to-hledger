@@ -206,7 +206,8 @@ transaction=$("$P2T" -layout "$FILE" - | $GREP -e "Transaction Detail" -A 50 | $
 
 # reallocation, sample Betterment Safety Net 20190911-2.pdf
 # tax loss harvesting, sample Betterment Wealth 20150824.pdf
-reallocation=$("$P2T" -layout "$FILE" - | $GREP -E "^[[:space:]]*(Allocation Change|Rebalance)" -A 20 | $SED '1d' | $SED '2d' | $SED '/^$/q')
+reallocation=$("$P2T" -layout "$FILE" - | $GREP -E "^[[:space:]]*(Allocation Change|Rebalance|Portfolio Update)" -A 20 | $SED '1d' \
+    | $SED '2d' | $SED '/^$/q')
 # portfolio update, sample Betterment Wealth 20140821.pdf
 portfolio=$("$P2T" -layout "$FILE" - | $GREP -e "^[[:space:]]*Portfolio Update" -A 20 | $SED '1d' | $SED '/^$/q' | $CUT -c 1-29,76- \
         | $GREP -v '^[[:space:]]*$' | $SED -E 's/(Stocks|Bonds) \///g')
@@ -276,15 +277,19 @@ if [[ "$transaction" == *"Tax Loss Harvesting"* ]]; then
     exit 0
 fi
 
-if [ ${#reallocation} -gt 0 ]; then
-    log "$FILE contains a reallocation."
-    tx "Re-allocation" "$reallocation"
+if [ ${#portfolio} -gt 0 ]; then
+    log "$FILE contains a portfolio update."
+    if [[ "$portfolio" == *"Bonds)"* ]]; then
+        tx "Re-allocation" "$reallocation"
+    else 
+        tx "Portfolio Update" "$portfolio"
+    fi
     exit 0
 fi
 
-if [ ${#portfolio} -gt 0 ]; then
-    log "$FILE contains a portfolio update."
-    tx "Portfolio Update" "$portfolio"
+if [ ${#reallocation} -gt 0 ]; then
+    log "$FILE contains a reallocation."
+    tx "Re-allocation" "$reallocation"
     exit 0
 fi
 
