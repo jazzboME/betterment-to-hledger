@@ -4,6 +4,17 @@ This repository contains a bash script to convert betterment activity report PDF
 
 If you try this, obviously the conversion may not be perfect and you may want to hand touch up any issues, such as the accounts from where your deposits originate. 
 
+The script takes an opionated view of things and posts commodity transactions at cost (@@) as well as using the cost to derive a more accurate share quanity to six places.
+
+So expect a statement that reads:
+```
+FUND	   Price.    Shares    Value
+STOCK      $51.90    -0.111    -$5.78
+```
+to output as
+```
+assets:investing:betterment:STOCK  -0.111368 STOCK @@ $5.78 ; 0.111 priced at $51.90
+```
 **Note:** This script was tested on Betterment statements from approximately 2014 to late 2022, so it may not support activity reports dated after that.
 
 ## Pre-Requisites
