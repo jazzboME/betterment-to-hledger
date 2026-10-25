@@ -147,7 +147,8 @@ function tx {
         cost="${cost//[\$,]/}"
         totalCost=$(bc <<< "$totalCost + $cost")
         shares=$(printf "%.6f" "$(echo "scale=8; $cost / $price" | bc)")
-        iShares="${shares//-/}"
+        iShares="${shares//-/}"                 # inverted shared for mirrored transactions
+        cost="${cost//-/}"                      # hledger cost should never be negative because using @@
         txo+=$(echo "\t${transBaseOrig}$3:$security\t\t$iShares $security @@ \$$cost ; $origShares priced a \$$price\n")
         txs+=$(echo "\t${transBase}$security\t\t$shares $security @@ \$$cost ; $origShares priced at \$$price\n")
         ((lineNum++))
@@ -156,13 +157,13 @@ function tx {
     printf -v outputNum "%.2f" "$totalCost"
     case "$1" in
         "Advisory Fees")
-            echo -e "\t$transFees\t\t\$${outputNum//-\n}"
+            echo -e "\t$transFees\t\t\$${outputNum//-/}"
             ;;
         "Withdrawal")
-            echo -e "\t$transWithdrawal\t\t\$${outputNum//-\n}"
+            echo -e "\t$transWithdrawal\t\t\$${outputNum//-/}"
             ;;
         "Transfer Rebalance")
-            echo -e "\t$transBaseOrig$3:cash\t\t\$${outputNum//-\n}"
+            echo -e "\t$transBaseOrig$3:cash\t\t\$${outputNum//-/}"
             ;;
         "Position Transfer")
             txo=$(echo -e $txo | $SED '$d')
